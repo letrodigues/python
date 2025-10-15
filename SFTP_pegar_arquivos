@@ -1,0 +1,83 @@
+import os
+import pandas as pd
+import pysftp
+import shutil
+from datetime import datetime, timedelta
+import warnings
+
+# Desativa os avisos de UserWarning
+warnings.filterwarnings("ignore", category=UserWarning)
+
+def reset_local_directory(directory):
+    """Remove e recria o diretório local especificado."""
+    try:
+        if os.path.exists(directory):
+            print(f"Removendo diretório: {directory}")
+            shutil.rmtree(directory)
+        os.makedirs(directory)
+        print(f"Diretório recriado: {directory}")
+        return True
+    except Exception as e:
+        print(f"Erro ao resetar diretório: {e}")
+        return False
+
+def download_most_recent_file_with_string(sftp_host, sftp_port, sftp_username, sftp_password, remote_dir, local_dir, search_string):
+    """Baixa o arquivo mais recente que contém uma string específica no nome e converte de CSV para XLSX."""
+    try:
+        cnopts = pysftp.CnOpts()
+        cnopts.hostkeys = None  # Desativa verificação de host key
+
+        with pysftp.Connection(sftp_host, username=sftp_username, password=sftp_password, port=sftp_port, cnopts=cnopts) as sftp:
+            sftp.cwd(remote_dir)
+
+            arquivos_filtrados = [
+                (file.filename, file.st_mtime)
+                for file in sftp.listdir_attr()
+                if search_string in file.filename
+            ]
+
+            arquivos_filtrados.sort(key=lambda x: x[1], reverse=True)
+
+            if arquivos_filtrados:
+                arquivo_mais_recente = arquivos_filtrados[0][0]
+                remote_file_path = f"{remote_dir}/{arquivo_mais_recente}"
+                local_file_path = os.path.join(local_dir, arquivo_mais_recente)
+
+                print(f"Baixando arquivo: {arquivo_mais_recente}")
+                sftp.get(remote_file_path, local_file_path)
+
+                print("Convertendo CSV para XLSX...")
+                dados = pd.read_csv(local_file_path, sep=';', encoding='latin1')
+                caminho_xlsx = local_file_path.replace('.csv', '.xlsx')
+                dados.to_excel(caminho_xlsx, index=False)
+
+                if os.path.exists(caminho_xlsx):
+                    os.remove(local_file_path)
+            else:
+                print(f"Nenhum arquivo encontrado com '{search_string}' no nome.")
+        return True
+    except Exception as e:
+        print(f"Erro ao baixar ou converter arquivo: {e}")
+        return False
+
+if __name__ == "__main__":
+    local_directory = r'C:\ArquivosSFTP\TEL'
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m-%Y")
+    search_string = yesterday
+
+    print(f"Procurando arquivos com a data: {search_string}")
+
+    if reset_local_directory(local_directory):
+        sucesso = download_most_recent_file_with_string(
+            sftp_host='sftp.exemplo.com',
+            sftp_port=22,
+            sftp_username='usuario_demo',
+            sftp_password='senha_segura123',
+            remote_dir='/dados/processados',
+            local_dir=local_directory,
+            search_string=search_string
+        )
+        if sucesso:
+            print("Processo concluído com sucesso.")
+        else:
+            print("Falha no processo.")
